@@ -4,8 +4,10 @@ import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.location.Location;
+import android.os.Build;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.v4.app.ActivityCompat;
 import android.support.v4.app.FragmentActivity;
 import android.os.Bundle;
 import android.support.v4.content.ContextCompat;
@@ -20,7 +22,9 @@ import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
 
 public class MapsActivity extends FragmentActivity implements OnMapReadyCallback,
@@ -43,10 +47,19 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 	
 	private boolean mLocationupdates = false;
 
+	public static final int REQUEST_LOCATION_CODE =99;
+
+	private Marker currentLocMarker;
+
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 		setContentView(R.layout.activity_maps);
+
+        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+        {
+            checkLocationPermission();
+        }
 		
 		buildGoogleAPIClient();
 		
@@ -54,6 +67,36 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 		SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
 				.findFragmentById(R.id.map);
 		mapFragment.getMapAsync(this);
+
+
+	}
+
+	@Override
+	public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+
+		//switch since you might need to add more permissions later on
+		switch (requestCode)
+		{
+			case REQUEST_LOCATION_CODE:
+				//permission granted
+				if(ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)== PackageManager.PERMISSION_GRANTED)
+				{
+					if(mGoogleApiClient == null)
+					{
+						buildGoogleApiClient();
+					}
+					mMap.setMyLocationEnabled(true);
+
+
+
+				}
+				else   //permission denied
+				{
+					Toast.makeText(this, "Permission Denied", Toast.LENGTH_LONG).show();
+				}
+				return;
+		}
+
 	}
 
 
@@ -70,10 +113,24 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 	public void onMapReady(GoogleMap googleMap) {
 		mMap = googleMap;
 
-		// Add a marker in Sydney and move the camera
-		LatLng sydney = new LatLng(-34, 151);
-		mMap.addMarker(new MarkerOptions().position(sydney).title("Marker in Sydney"));
-		mMap.moveCamera(CameraUpdateFactory.newLatLng(sydney));
+		if(ContextCompat.checkSelfPermission(this , Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED)
+		{
+			buildGoogleApiClient();
+			mMap.setMyLocationEnabled(true);
+
+		}
+
+	}
+
+	protected synchronized void buildGoogleApiClient()
+	{
+		mGoogleApiClient = new GoogleApiClient.Builder(this)
+							.addConnectionCallbacks(this)
+							.addOnConnectionFailedListener(this)
+							.addApi(LocationServices.API)
+							.build();
+
+		mGoogleApiClient.connect();
 	}
 	
 	@Override
@@ -82,6 +139,8 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 		mLocationRequest = LocationRequest.create();
 		
 		mLocationRequest.setInterval(1000);
+
+		mLocationRequest.setFastestInterval(1000);
 		
 		mLocationRequest.setSmallestDisplacement(1);
 		
@@ -93,10 +152,34 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 		}
 		else
 		{
-			System.out.println("NO PERMS");
+			System.out.println("NO PERMISSIONS");
 		}
 		
 	}
+
+	public boolean checkLocationPermission()
+	{
+		if(ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)!= PackageManager.PERMISSION_GRANTED)
+		{
+			if(ActivityCompat.shouldShowRequestPermissionRationale(this,Manifest.permission.ACCESS_FINE_LOCATION))
+			{
+				ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION},REQUEST_LOCATION_CODE);
+			}
+			else
+			{
+				ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION},REQUEST_LOCATION_CODE);
+			}
+			return false;
+
+
+
+		}
+		else
+		{
+			return true;
+		}
+	}
+
 	
 	@Override
 	public void onConnectionSuspended(int i) {
@@ -111,14 +194,14 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 	@Override
 	public void onLocationChanged(Location location) {
 		
-		
+        /*
 		if (location == null)
 		{
 			Toast.makeText(this, "Location is null", Toast.LENGTH_LONG).show();
 		}
 		else
 		{
-			
+
 			mLatitude = location.getLatitude();
 			
 			mLongitude = location.getLongitude();
@@ -137,6 +220,35 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 			
 			
 		}
+        */
+
+
+		mLastlocation = location;
+
+		if(currentLocMarker != null)
+		{
+			currentLocMarker.remove();
+		}
+
+		LatLng latlng = new LatLng(location.getLatitude(),location.getLongitude());
+
+		MarkerOptions markerOptions = new MarkerOptions();
+
+
+		markerOptions.position(latlng);
+		markerOptions.title("Your Location");
+		markerOptions.icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED));
+
+		currentLocMarker = mMap.addMarker(markerOptions);
+
+		mMap.moveCamera(CameraUpdateFactory.newLatLng(latlng));
+		mMap.animateCamera(CameraUpdateFactory.zoomBy(16.0f));
+
+		if(mGoogleApiClient!= null)
+		{
+			LocationServices.FusedLocationApi.removeLocationUpdates(mGoogleApiClient,this);
+		}
+
 		
 	}
 	
@@ -153,3 +265,4 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 		
 	}
 }
+
